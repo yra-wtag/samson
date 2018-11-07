@@ -4,15 +4,20 @@ require_relative '../test_helper'
 SingleCov.covered! uncovered: 3
 
 describe SamsonEnv do
-  let(:deploy) {deploys(:succeeded_test)}
-  let(:stage) {deploy.stage}
-  let(:project) {stage.project}
+  let(:deploy) { deploys(:succeeded_test) }
+  let(:stage) { deploy.stage }
+  let(:project) { stage.project }
 
   describe :project_permitted_params do
     it "adds params" do
       Samson::Hooks.fire(:project_permitted_params).must_include(
-          environment_variables_attributes: [:name, :value, :scope_type_and_id, :_destroy, :id],
-          environment_variable_group_ids: []
+        [
+          {
+            environment_variables_attributes: [:name, :value, :scope_type_and_id, :_destroy, :id],
+            environment_variable_group_ids: []
+          },
+          :use_env_repo
+        ]
       )
     end
   end
@@ -32,7 +37,7 @@ describe SamsonEnv do
 
     describe ".env" do
       describe "without groups" do
-        before {stage.deploy_groups.delete_all}
+        before { stage.deploy_groups.delete_all }
 
         it "does not modify when no variables were specified" do
           EnvironmentVariable.delete_all
@@ -58,7 +63,10 @@ describe SamsonEnv do
         describe "with deployment env config" do
           it "gets env from Github" do
             with_env DEPLOYMENT_ENV_CONFIG: "organization/repo_name" do
-              stub_github_api("repos/organization/repo_name/generated/project/deploy_group.env", "HELLO=world\nWORLD=hello\n")
+              #stub_github_api("repos/organization/repo_name/generated/project/deploy_group.env", "HELLO=world\nWORLD=hello\n")
+              stub_request(:get, "https://api.github.com/repos/zendesk/deployment_env_config/contents/generated/gcr_watcher/pod999.env.env").
+                  with(headers: {'Accept'=>'applications/vnd.github.v3.raw', 'Accept-Encoding'=>'gzip;q=1.0,deflate;q=0.6,identity;q=0.3', 'Content-Type'=>'application/json', 'User-Agent'=>'Octokit Ruby Gem 4.2.0'}).
+                  to_return(status: 200, body: "HELLO=world\nWORLD=hello\n", headers: {})
               expected_result = {"HELLO": "world", "WORLD": "hello"}
 
               EnvironmentVariable.env(project, deploy_groups).to_a.flatten.equal? expected_result.to_a.flatten
@@ -112,9 +120,9 @@ describe SamsonEnv do
     it "links to scoped env var" do
       group = EnvironmentVariableGroup.create!(name: "Bar")
       var = group.environment_variables.create!(
-          name: "WORLD3",
-          value: "hello",
-          scope_type_and_id: "Environment-#{environments(:production).id}"
+        name: "WORLD3",
+        value: "hello",
+        scope_type_and_id: "Environment-#{environments(:production).id}"
       )
       proc = Samson::Hooks.fire(:link_parts_for_resource).to_h.fetch("EnvironmentVariable")
       proc.call(var).must_equal ["WORLD3 for Production on Bar", EnvironmentVariable]
@@ -127,10 +135,10 @@ describe SamsonEnv do
       proc.call(user, action, group)
     end
 
-    let(:group) {EnvironmentVariableGroup.create!(name: "Bar", projects: [projects(:test)])}
+    let(:group) { EnvironmentVariableGroup.create!(name: "Bar", projects: [projects(:test)]) }
 
     it "cannot read" do
-      assert_raises(ArgumentError) {call(users(:admin), :read, group)}
+      assert_raises(ArgumentError) { call(users(:admin), :read, group) }
     end
 
     it "can write as admin" do
@@ -153,6 +161,55 @@ describe SamsonEnv do
     it "can write groups not used by any projet" do
       group.update_attributes!(projects: [])
       assert call(users(:project_admin), :write, group)
+    end
+  end
+
+  describe 'view callbacks' do
+    before do
+      view_context.instance_variable_set(:@project, project)
+    end
+
+    let(:view_context) do
+      view_context = ActionView::Base.new(ActionController::Base.view_paths)
+
+      class << view_context
+        include Rails.application.routes.url_helpers
+        include ApplicationHelper
+      end
+
+      view_context.instance_eval do
+        # stub for testing render
+        def protect_against_forgery?
+        end
+      end
+
+      view_context
+    end
+
+    describe 'project_form callback' do
+      def with_form
+        view_context.form_for project do |form|
+          yield form
+        end
+      end
+
+      def render_view
+        with_form do |form|
+          Samson::Hooks.render_views(:project_form, view_context, form: form)
+        end
+      end
+
+      it 'renders use_env_repo checkbox when DEPLOYMENT_ENV_REPO is present' do
+        with_env DEPLOYMENT_ENV_REPO: 'git@github.com:zendesk/test.git' do
+          result = render_view
+          result.must_include %(id="project_use_env_repo" />)
+        end
+      end
+
+      it 'does not render use_env_repo checkbox when DEPLOYMENT_ENV_REPO is nil' do
+        result = render_view
+        result.wont_include %(id="project_use_env_repo" />)
+      end
     end
   end
 end

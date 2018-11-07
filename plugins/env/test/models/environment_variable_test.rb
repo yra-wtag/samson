@@ -43,6 +43,18 @@ describe EnvironmentVariable do
       EnvironmentVariable.env(Project.new, 123).must_equal({})
     end
 
+    it "gets env from Github" do
+      with_env DEPLOYMENT_ENV_CONFIG: "organization/repo_name" do
+      #  stub_github_api("repos/organization/repo_name/generated/project/deploy_group.env", "HELLO=world\nWORLD=hello\n")
+        stub_request(:get, "https://api.github.com/repos/zendesk/deployment_env_config/contents/generated/gcr_watcher/pod999.env.env").
+            with(headers: {'Accept'=>'applications/vnd.github.v3.raw', 'Accept-Encoding'=>'gzip;q=1.0,deflate;q=0.6,identity;q=0.3', 'Content-Type'=>'application/json', 'User-Agent'=>'Octokit Ruby Gem 4.2.0'}).
+            to_return(status: 200, body: "HELLO=world\nWORLD=hello\n", headers: {})
+        expected_result = {"HELLO": "world", "WORLD": "hello"}
+        #project, deploy_groups
+        EnvironmentVariable.env(project, deploy_groups).to_a.flatten.equal? expected_result.to_a.flatten
+      end
+    end
+
     describe "with an assigned group and variables" do
       before do
         project.environment_variable_groups = EnvironmentVariableGroup.all

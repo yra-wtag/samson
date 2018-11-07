@@ -21,6 +21,7 @@ class EnvironmentVariable < ActiveRecord::Base
     def env(project, deploy_group, preview: false, resolve_secrets: true)
       env_repo = ENV["DEPLOYMENT_ENV_REPO"]
       if env_repo
+        logger.info "env_repo = #{ENV["DEPLOYMENT_ENV_REPO"]}"
         env = get_env_vars_from_repo(env_repo,deploy_group, project)
       else
         env = get_env_vars_from_samson(deploy_group, project)

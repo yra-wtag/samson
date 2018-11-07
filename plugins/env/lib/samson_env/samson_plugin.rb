@@ -54,7 +54,12 @@ Samson::Hooks.view :deploy_confirmation_tab_body, "samson_env/deploy_tab_body"
 Samson::Hooks.view :deploy_tab_nav, "samson_env/deploy_tab_nav"
 Samson::Hooks.view :deploy_tab_body, "samson_env/deploy_tab_body"
 Samson::Hooks.callback :project_permitted_params do
-  AcceptsEnvironmentVariables::ASSIGNABLE_ATTRIBUTES.merge(environment_variable_group_ids: [])
+  [
+    AcceptsEnvironmentVariables::ASSIGNABLE_ATTRIBUTES.merge(
+      environment_variable_group_ids: []
+    ),
+    :use_env_repo
+  ]
 end
 
 Samson::Hooks.callback :after_deploy_setup do |dir, job|
